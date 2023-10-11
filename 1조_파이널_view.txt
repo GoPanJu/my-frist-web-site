@@ -1,0 +1,469 @@
+[예지]---------------------------------------------------------------------
+create or replace view myBoardListView
+as
+SELECT M.MEM_ID, M.MEM_NO, MY.MY_BOARD_NO, B.M_BOARD_NO, B.M_BOARD_NAME,  
+(SELECT M.MEM_NAME FROM MEMBER M WHERE M.MEM_NO = B.MEM_NO) AS ADMIN_NAME,
+(SELECT M.MEM_NO FROM MEMBER M WHERE M.MEM_NO = B.MEM_NO) AS ADMIN_NO
+FROM MEMBER M
+LEFT JOIN my_board MY
+ON M.MEM_NO = MY.MEM_NO
+LEFT JOIN M_BOARD B
+ON MY.M_BOARD_NO = B.M_BOARD_NO;
+
+<!-------------팀 공지사항 뷰 ------------------>
+
+create or replace view teamNoticeListView
+as
+SELECT A.*, B.MEM_ID,B.MEM_NAME, B.MEM_IMAGE, B.DEPT_NAME
+FROM
+(
+    SELECT T.*, MY.M_BOARD_NO
+    FROM TEAM_NOTICE T
+    JOIN MY_BOARD MY
+    ON T.MY_BOARD_NO = my.my_board_no
+)A JOIN
+(
+    SELECT M.MEM_NO,M.MEM_ID, MEM_NAME, MEM_IMAGE, D.DEPT_NAME
+    FROM MEMBER M
+    JOIN DEPT D
+    ON M.DEPT_NO = D.DEPT_NO
+) B
+ON A.MEM_NO = B.MEM_NO;
+
+
+<!----------------팀 업무 게시판 VIEW -------------------->
+create or replace view teamWorkBoardListView
+as
+SELECT A.*, B.MEM_ID,B.MEM_NAME, B.MEM_IMAGE, B.DEPT_NAME
+FROM
+(
+    SELECT T.*, MY.M_BOARD_NO
+    FROM TEAM_WORK_BOARD T
+    JOIN MY_BOARD MY
+    ON T.MY_BOARD_NO = my.my_board_no
+)A JOIN
+(
+    SELECT M.MEM_NO,M.MEM_ID, MEM_NAME, MEM_IMAGE, D.DEPT_NAME
+    FROM MEMBER M
+    JOIN DEPT D
+    ON M.DEPT_NO = D.DEPT_NO
+) B
+ON A.MEM_NO = B.MEM_NO;
+
+
+<!-----이전글 다음글 (팀별 공지사항/팀별 업무 게시판)------>
+ select a.*
+	from(
+		select team_notice_no,m_board_no,team_notice_title,
+		lag(team_notice_no,1) over(order by team_notice_no) as prev,
+		lag(step,1) over(order by team_notice_no) as prev_step,
+		lag(team_notice_title,1) over(order by team_notice_no) as prev_title, 
+		lag(m_board_no,1) over(order by team_notice_no) as prev_m_board_no,
+		lead(team_notice_no,1) over(order by team_notice_no) as next, 
+		lead(step,1) over(order by team_notice_no) as next_step, 
+		lead(team_notice_title,1) over(order by team_notice_no) as next_title,
+		lead(m_board_no,1) over(order by team_notice_no) as next_m_board_no
+		from teamnoticelistview
+		where team_notice_title is not null 
+		and m_board_no=#{mBoardNo} 
+	)a
+where team_notice_no=#{teamNoticeNo}
+
+
+ select a.*
+	from(
+		select team_board_no,m_board_no,TEAM_BOARD_TITLE,
+		lag(team_board_no,1) over(order by team_board_no) as prev,
+		lag(TEAM_BOARD_TITLE,1) over(order by team_board_no) as prev_title, 
+		lag(m_board_no,1) over(order by team_board_no) as prev_m_board_no,
+		lead(team_board_no,1) over(order by team_board_no) as next, 
+		lead(TEAM_BOARD_TITLE,1) over(order by team_board_no) as next_title,
+		lead(m_board_no,1) over(order by team_board_no) as next_m_board_no
+		from teamWorkBoardListview
+		where TEAM_BOARD_TITLE is not null 
+		and m_board_no=#{mBoardNo}
+        order by regdate
+	)a
+where team_board_no=#{teamBoardNo}
+<!-----------------------마이보드 멤버 ------------------------------------------>
+create or replace view myBoardMemberView
+as
+SELECT M.*,MY.MY_BOARD_NO, MY.M_BOARD_NO,P.POSITION_NAME,D.DEPT_NAME
+FROM MEMBER M
+LEFT JOIN MY_BOARD MY
+ON M.MEM_NO = MY.MEM_NO
+LEFT JOIN POSITION P
+ON M.POSITION_NO = P.POSITION_NO
+LEFT JOIN DEPT D
+ON M.DEPT_NO = D.DEPT_NO;
+
+
+<!---------------두두 리스트 불러오기 (멤버 정보 추가)---------------------------->
+create or replace view todoListDetailMemberView
+as
+select t.*,m.mem_name,m.mem_image
+from todolist_detail t
+left join member m
+on t.mem_no = m.mem_no;
+
+<!-------------업무 TODOLISTVIEW  ------------->
+//N이 완료, Y가 완료전
+
+create or replace view TODOLISTVIEW
+AS
+SELECT  t.todolist_no, t.start_regdate, t.done_regdate,
+d.mem_no, d.todo_content, d.status
+FROM todolist t
+JOIN todolist_detail d ON t.todolist_no = d.todolist_no;
+
+<!--------채팅 정보 ------------------->
+create or replace view chatRoomInfoView
+as
+select r.*, m.mem_no, m.chat_member_no, b.mem_name,  b.position_no, 
+b.mem_image, d.dept_no, d.dept_name, p.position_name,
+(select max(regdate) from chat_message me where me.chat_member_no =m.chat_member_no) as lastDate,
+(select CHAT_MESSAGE from chat_message me where me.chat_member_no =m.chat_member_no ORDER BY REGDATE DESC FETCH FIRST 1 ROW ONLY) as CHAT_MESSAGE
+from chat_room r 
+join chat_member m
+on r.chat_room_no = m.chat_room_no
+join member b
+on b.mem_no = m.mem_no
+join dept d 
+on b.dept_no = d.dept_no
+join position p
+on b.position_no = p.position_no;
+
+<--채팅방------->
+create or replace view chatMessageListView
+as
+select r.chat_room_no, m.chat_member_no, m.mem_no,
+s.chat_message_no,s.chat_message, s.read_chat, s.regdate,
+(select b.mem_name from member b where b.mem_no = m.mem_no) as mem_name,
+(select b.mem_image from member b where b.mem_no = m.mem_no) as mem_image
+from
+chat_room r 
+join 
+chat_member m
+on  r.chat_room_no = m.chat_room_no
+join chat_message s
+on s.chat_member_no = m.chat_member_no;
+[다희]---------------------------------------------------------------------
+CREATE OR REPLACE VIEW DEPTMEMCOUNTVIEW ("DEPT_NO", "DEPT_NAME", "DEPT_TEL", "MEMBERCOUNT", "STATUS") AS 
+  SELECT d."DEPT_NO", d."DEPT_NAME", d."DEPT_TEL", COUNT(m.mem_No) AS memberCount, d."STATUS"
+  FROM dept d
+  LEFT JOIN member m ON d.dept_No = m.dept_No AND m.CONTRACT_DONE IS NULL
+  GROUP BY d.dept_No, d.dept_Name, d.dept_Tel, d."STATUS";
+
+---------------------------------------------------------------------------------
+
+
+create or replace view mboardListInfoView
+as
+select a.*, d.dept_name, d.dept_tel, d.status
+from 
+	(select b.m_board_name,b.m_board_no, m.mem_name, m.dept_no, m.mem_no
+	from m_board b left join member m
+	on b.mem_no = m.mem_no)a
+left join dept d
+on a.dept_no = d.dept_no;
+
+-----------------------------------------------------------------------------------
+
+
+CREATE OR REPLACE VIEW DEPTMEMCOUNTVIEW
+AS
+SELECT
+    d.dept_no,
+    d.dept_name,
+    d.dept_tel,
+    COUNT(m.mem_No) AS memberCount,
+    d.status,
+    (SELECT COUNT(*) FROM team) AS totalPlayers,
+    (SELECT COUNT(*) FROM staff) AS totalStaff
+FROM
+    dept d
+Left Join
+    Member M On D.Dept_No = M.Dept_No And M.Contract_Done Is Null
+Group By
+    D.Dept_No, D.Dept_Name, D.Dept_Tel, D.Status;
+
+
+---------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW memStaffView 
+AS
+    select a.*, d.dept_name
+    from
+    (SELECT
+    mem_No AS mem_No,
+    mem_Image AS mem_Image,
+    dept_No AS dept_No,
+    position_No AS position_No,
+    mem_Name AS mem_Name,
+    mem_Id AS mem_Id,
+    mem_Tel AS mem_Tel,
+    mem_Birth AS mem_Birth,
+    NULL AS staff_No,
+    NULL AS staff_Image,
+    NULL AS staff_Name,
+    NULL AS staff_Position,
+    NULL AS staff_Birth,
+    NULL AS staff_Id,
+    NULL AS staff_Tel,
+    NULL AS staff_Info
+FROM member
+
+UNION ALL
+
+SELECT
+    NULL AS mem_No,
+    NULL AS mem_Image,
+    dept_No AS dept_No,
+    NULL AS position_No,
+    NULL AS mem_Name,
+    NULL AS mem_Id,
+    NULL AS mem_Tel,
+    NULL AS mem_Birth,
+    staff_No AS staff_No,
+    staff_Image AS staff_Image,
+    staff_Name AS staff_Name,
+    staff_Position AS staff_Position,
+    staff_Birth AS staff_Birth,
+    staff_Id AS staff_Id,
+    staff_Tel AS staff_Tel,
+    staff_Info AS staff_Info
+    from staff)a left join dept d
+    on a.dept_no = d.dept_no;
+
+
+
+---------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW allmemStaffView 
+AS   
+SELECT A.*, B.POSITION_NAME
+FROM MEMSTAFFVIEW A LEFT JOIN POSITION B
+ON A.POSITION_NO = B.POSITION_NO;
+
+SELECT * FROM ALLMEMSTAFFVIEW;
+select * from staff;
+
+    CREATE OR REPLACE VIEW memStaffView 
+AS
+    select a.*, d.dept_name
+    from
+    (SELECT
+    mem_No AS mem_No,
+    mem_Image AS mem_Image,
+    dept_No AS dept_No,
+    position_No AS position_No,
+    mem_Name AS mem_Name,
+    mem_Id AS mem_Id,
+    mem_Tel AS mem_Tel,
+    mem_Birth AS mem_Birth,
+    contract_done as contract_done,
+    NULL AS staff_No,
+    NULL AS staff_Image,
+    NULL AS staff_Name,
+    NULL AS staff_Position,
+    NULL AS staff_Birth,
+    NULL AS staff_Id,
+    NULL AS staff_Tel,
+    NULL AS staff_Info,
+    NULL AS staff_status
+FROM member
+
+UNION ALL
+
+SELECT
+    NULL AS mem_No,
+    NULL AS mem_Image,
+    dept_No AS dept_No,
+    NULL AS position_No,
+    NULL AS mem_Name,
+    NULL AS mem_Id,
+    NULL AS mem_Tel,
+    NULL AS mem_Birth,
+    NULL as contract_done,
+    staff_No AS staff_No,
+    staff_Image AS staff_Image,
+    staff_Name AS staff_Name,
+    staff_Position AS staff_Position,
+    staff_Birth AS staff_Birth,
+    staff_Id AS staff_Id,
+    staff_Tel AS staff_Tel,
+    staff_Info AS staff_Info,
+    staff_status AS staff_status
+    from staff)a left join dept d
+    on a.dept_no = d.dept_no;
+
+-------------------------------------------------------------------------------
+
+  CREATE OR REPLACE FORCE NONEDITIONABLE VIEW "EZBEARS"."MEMLISTVIEW" ("MEM_NO", "DEPT_NO", "POSITION_NO", "MEM_NAME", "MEM_ID", "MEM_PWD", "MEM_TEL", "MEM_SAL", "CONTRACT_START", "CONTRACT_DONE", "TYPE", "MEM_ADDRESS", "MEM_ADDRESS_DETAIL", "MEM_ZIPCODE", "MEM_IMAGE", "MEM_BIRTH", "DEPT_NAME", "POSITION_NAME") AS 
+  select m."MEM_NO",m."DEPT_NO",m."POSITION_NO",m."MEM_NAME",m."MEM_ID",m."MEM_PWD",m."MEM_TEL",m."MEM_SAL",m."CONTRACT_START",m."CONTRACT_DONE",m."TYPE",m."MEM_ADDRESS",m."MEM_ADDRESS_DETAIL",m."MEM_ZIPCODE",m."MEM_IMAGE",m."MEM_BIRTH", d.dept_name, p.position_name
+from member m left join dept d
+on m.dept_no = d.dept_no
+left join position p
+on m.position_no = p.position_no
+;
+
+
+
+[희진]---------------------------------------------------------------------
+create or replace view myBoardInfo
+as
+select b.*,m.mem_id,m.dept_No,m.mem_name,m.position_no
+from member m join my_board b
+on m.mem_no = b.mem_no;
+
+
+create or replace view calenderInfo
+as
+select s.mem_no,info.mem_id,info.my_board_no,info.m_board_no,s.schedule_start,s.schedule_end,s.schedule_title, s.schedule_no  from
+myBoardInfo info join schedule s
+on info.my_board_no = s.my_board_no;
+
+
+CREATE OR REPLACE VIEW signListView
+AS
+SELECT A.*, B.MEM_ID, B.MEM_NAME, B.DEPT_NAME, B.POSITION_NO
+FROM
+(
+    SELECT S.*, MY.M_BOARD_NO
+    FROM SIGN S
+    JOIN MY_BOARD MY
+    ON S.MY_BOARD_NO = my.my_board_no
+)A JOIN
+(
+    SELECT M.MEM_NO,M.MEM_ID, MEM_NAME, MEM_IMAGE, D.DEPT_NAME, M.DEPT_NO, M.POSITION_NO
+    FROM MEMBER M
+    JOIN DEPT D
+    ON M.DEPT_NO = D.DEPT_NO
+) B
+ON A.MEM_NO = B.MEM_NO; 
+
+
+
+create or replace view approvalDetailView
+as
+select s.*,m.mem_name from
+member m join sign s
+on m.mem_no = s.mem_no;
+
+
+
+create or replace view approvaMemInfo
+as
+select B.*,mem.position_no,mem.mem_name from
+    (select s.*, A.m_board_no 
+        from sign s join 
+    (select my.* from 
+      my_board my join m_board m
+      on my.m_board_no = m.m_board_no
+    )A
+    on s.my_board_no = A.my_board_no
+)B join member mem
+on B.mem_no = mem.mem_no ;
+
+[충혁]---------------------------------------------------------------------
+
+
+-----------------------출퇴근 처리에 사용한 view---------------------
+create or replace view attendanceView 
+as
+select m.mem_name, m.dept_no, m.position_no, a.*, d.dept_name
+from attendance a join member m
+on a.mem_no = m.mem_no
+join dept d
+on m.dept_no = d.dept_no
+order by attendance_no desc;
+
+-----------------------선수 list 에 사용한 view ------------------------
+create or replace view teamSelectView
+as
+(
+    select p.b_position_name, t.*
+    from team t join b_position p
+    on t.b_position_no = p.b_position_no
+)
+order by t.player_no desc;
+
+--------------------------message 기능에 사용한 view --------------------
+create or replace view messageView
+as
+select s.*, r. receiveUserNo, r.messagereceiveNo,
+m.mem_name as sender, m.mem_no as senderNo, m.position_no as senderPNo
+, m2.mem_name as receiver, m2.mem_no as receiverrNo, m2.position_no as receiverPNo,
+d.dept_name as senderDept, d2.dept_name as receiverDept, p2.position_name as receiverPosition, p.position_name as senderPosition
+from messageSend s join messageReceive r
+on s.messagesendno = r.messagesendno
+join member m
+on s.sendUserNo = m.mem_no
+join member m2
+on r.receiveUserNo = m2.mem_no
+join dept d
+on m.dept_no = d.dept_no
+join dept d2
+on m2.dept_no = d2.dept_no
+join position p
+on m.position_no = p.position_no
+join position p2
+on m2.position_no = p2.position_no;
+
+
+[판주]---------------------------------------------------------------------
+create or replace view memberView
+as
+select m.*,p.position_name
+from member m join position p
+on m.position_no = p.position_no;
+
+select * from memberView;
+
+create or replace view staffView
+as
+select s.*,dept_name
+from staff s join dept d
+on s.dept_no = d.dept_no;
+
+select * from staffView;
+
+
+create or replace view memberView1
+as
+select m.*,d.dept_name
+from memberView m join dept d
+on m.dept_no = d.dept_no;
+
+select * from memberView1;
+
+
+create or replace view notice1
+as
+select n.*,m.dept_no,m.mem_name,m.mem_id,m.mem_image,d.dept_name
+from notice n left join member m
+on m.mem_no = n.mem_no
+right join dept d
+on m.dept_no=d.dept_no;
+
+create or replace view noticeView
+as
+select n.*,m.mem_name,m.dept_no
+from notice n join member m
+on n.mem_no = m.mem_no;
+
+select * from noticeView;
+
+create or replace view board1
+as
+select b.*,m.mem_name,m.mem_id
+from board b left join member m
+on b.mem_no = m.mem_no;
+
+
+create or replace view board1
+as
+select m.mem_name,b.*
+from  board b left join member m
+on m.mem_no = b.mem_no;
+
+
+[건우]---------------------------------------------------------------------
